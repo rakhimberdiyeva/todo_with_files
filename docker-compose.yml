@@ -9,7 +9,7 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/letsencrypt:ro
-      - nginx_cache:var/cache/nginx
+      - nginx_cache:/var/cache/nginx
     depends_on:
       - frontend
       - backend
