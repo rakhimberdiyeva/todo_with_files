@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# DB & uploads (локальная разработка)
+backend/data/
+backend/*.db
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env*.local
+
+# Docker volumes (если монтируются в проект)
+postgres_data/
+minio_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
