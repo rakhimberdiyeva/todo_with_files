@@ -35,3 +35,12 @@ docker-compose up --build
 - Отметка задач как выполненных
 - Прикрепление файлов к задачам (загрузка, скачивание, удаление)
 - Фильтрация: Все / Активные / Выполненные
+
+docker compose run certbot certonly \
+  --webroot \
+  --webroot-path=/var/www/certbot \
+  -d malikarakh.uz \
+  -d www.testsage.uz \
+-d api.malikarakh.uz \
+  --email malikarakh07@gmail.com \
+  --agree-tos
