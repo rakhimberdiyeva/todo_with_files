@@ -40,7 +40,7 @@ docker compose run certbot certonly \
   --webroot \
   --webroot-path=/var/www/certbot \
   -d malikarakh.uz \
-  -d www.testsage.uz \
+  -d www.malikarakh.uz \
 -d api.malikarakh.uz \
   --email malikarakh07@gmail.com \
   --agree-tos
