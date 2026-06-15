@@ -1,4 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
@@ -16,6 +20,20 @@ S3_PUBLIC_ENDPOINT = os.getenv("S3_PUBLIC_ENDPOINT", "http://localhost:9000")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "minioadmin")
 S3_BUCKET = os.getenv("S3_BUCKET", "todo-files")
+
+SENTRY_DSN = os.getenv("SENTRY_DSN", None)
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", None)
+
+sentry_sdk.init(
+    dsn=SENTRY_DSN,
+    environment=SENTRY_ENVIRONMENT,
+    traces_sample_rate=1.0,
+    profiles_sample_rate=0.1,
+    integrations=[
+        StarletteIntegration(),
+        FastApiIntegration(),
+    ]
+)
 
 s3 = boto3.client(
     "s3",
@@ -35,7 +53,7 @@ app = FastAPI(title="Todo API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -211,3 +229,83 @@ def delete_file(file_id: int, db: Session = Depends(get_db)):
         pass
     db.delete(todo_file)
     db.commit()
+
+@app.get("/test-sentry")
+async def test_sentry():
+    result = 1 / 0
+    return {"result": result}
+
+async def get_current_user(request: Request):
+    return {"id": 123, "email": "user@example.com", "role": "student"}
+
+@app.get("/courses/{course_id}/lessons")
+async def get_lessons(
+        course_id: int,
+        request: Request,
+        user: dict = Depends(get_current_user)
+):
+    sentry_sdk.set_user(
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+        }
+    )
+    sentry_sdk.set_context(
+        "request_info",
+        {
+            "course_id": course_id,
+            "id": request.headers.get("X-Real-IP", request.client.host),
+
+        }
+    )
+    raise ValueError
+
+
+def get_user_balance(user_id: int):
+    return 80000
+
+class InsufficientFundsError(Exception):
+    pass
+
+def charge_payment(user_id, amount):
+    raise InsufficientFundsError
+
+
+@app.post("/payments/process")
+async def process_payment(amount: float, user_id: int):
+    # Теги — для фильтрации ошибок в Sentry
+    sentry_sdk.set_tag("payment.currency", "USD")
+    sentry_sdk.set_tag("payment.amount", str(amount))
+
+    # Breadcrumbs (хлебные крошки) — история шагов до ошибки.
+    # Если что-то пойдёт не так, в Sentry будет видно по каким шагам шёл код.
+    sentry_sdk.add_breadcrumb(
+        category="payment",
+        message=f"Начинаем обработку платежа на ${amount}",
+        level="info",
+    )
+
+    try:
+        # Шаг 1
+        sentry_sdk.add_breadcrumb(
+            category="payment",
+            message="Проверяем баланс пользователя",
+            level="info",
+        )
+        balance = get_user_balance(user_id)
+
+        # Шаг 2
+        sentry_sdk.add_breadcrumb(
+            category="payment",
+            message=f"Баланс: ${balance}, списываем ${amount}",
+            level="info",
+        )
+        result = charge_payment(user_id, amount)
+
+        return {"status": "success", "transaction_id": result}
+
+    except InsufficientFundsError as e:
+        # Эту ошибку отправляем в Sentry вручную с дополнительным контекстом
+        sentry_sdk.capture_exception(e)
+        raise HTTPException(400, "Недостаточно средств")
