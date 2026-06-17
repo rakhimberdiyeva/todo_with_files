@@ -1,3 +1,4 @@
+import httpx
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
@@ -133,6 +134,8 @@ def get_todo(todo_id: int, db: Session = Depends(get_db)):
 @app.post("/todos", status_code=201)
 def create_todo(body: TodoCreate, db: Session = Depends(get_db)):
     todo = Todo(title=body.title, description=body.description)
+    if todo.title == "test-alert":
+        raise AttributeError
     db.add(todo)
     db.commit()
     db.refresh(todo)
@@ -235,6 +238,16 @@ async def test_sentry():
     result = 1 / 0
     return {"result": result}
 
+@app.get("/test-sentry-alerts")
+async def test_sentry_alerts():
+    result = 1 + "0"
+    return {"result": result}
+
+@app.get("/test_sentry_bot_alerts")
+async def test_sentry_bot_alerts():
+    raise IndexError
+
+
 async def get_current_user(request: Request):
     return {"id": 123, "email": "user@example.com", "role": "student"}
 
@@ -309,3 +322,59 @@ async def process_payment(amount: float, user_id: int):
         # Эту ошибку отправляем в Sentry вручную с дополнительным контекстом
         sentry_sdk.capture_exception(e)
         raise HTTPException(400, "Недостаточно средств")
+
+
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+
+@app.post("/webhooks/sentry")
+async def sentry_webhook(request: Request):
+    """
+    Sentry вызывает этот эндпоинт когда происходит ошибка.
+    Мы форматируем данные и отправляем красивое сообщение в Telegram.
+    """
+    data = await request.json()
+    print(data)
+
+    # Извлекаем нужные данные из Sentry payload
+    event = data.get("event", {})
+    issue_url = data.get("url", "")
+
+    error_title = event.get("title", "Unknown Error")
+    error_level = event.get("level", "error").upper()
+    culprit = event.get("culprit", "unknown location")
+    environment = event.get("environment", "production")
+    times_seen = data.get("times_seen", 1)
+    print(error_title)
+    # Выбираем эмодзи по уровню ошибки
+    emoji = {
+        "ERROR": "🔴",
+        "WARNING": "🟡",
+        "INFO": "🔵",
+        "FATAL": "💀",
+    }.get(error_level, "⚠️")
+
+    # Форматируем сообщение
+    message = (
+        f"{emoji} *{error_level}: {error_title}*\n\n"
+        f"📍 *Где:* `{culprit}`\n"
+        f"🌍 *Окружение:* {environment}\n"
+        f"🔁 *Раз случилось:* {times_seen}\n\n"
+        f"🔗 [Открыть в Sentry]({issue_url})"
+    )
+    print(message)
+    # Отправляем в Telegram
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+        )
+
+    return {"status": "ok"}
